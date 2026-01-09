@@ -33,9 +33,45 @@ object FileUtils {
     }
 
     fun parsePhoneNumber(fileName: String): String {
-        // 파일명에서 전화번호 추출 (삼성 형식: "통화 녹음 010-1234-5678_20240108_143022.m4a")
-        val regex = Regex("""(\d{2,4}[-.]?\d{3,4}[-.]?\d{4})""")
-        return regex.find(fileName)?.value?.replace("-", "")?.replace(".", "") ?: "Unknown"
+        // 1. 먼저 전화번호 패턴 찾기 (010-1234-5678, 01012345678, 02-123-4567 등)
+        val phoneRegex = Regex("""(\d{2,4}[-.]?\d{3,4}[-.]?\d{4})""")
+        val phoneMatch = phoneRegex.find(fileName)
+        if (phoneMatch != null) {
+            return phoneMatch.value.replace("-", "").replace(".", "")
+        }
+
+        // 2. 짧은 번호 (1502, 114, 1588-xxxx 등)
+        val shortNumberRegex = Regex("""[^\d](\d{3,4})[^\d]""")
+        val shortMatch = shortNumberRegex.find(fileName)
+
+        // 3. 전화번호가 없으면 파일명에서 연락처 이름 추출
+        // 삼성 형식: "통화 녹음 연락처이름_날짜_시간.m4a" 또는 "Call recording 연락처이름_날짜_시간.m4a"
+        val nameWithoutExt = fileName.substringBeforeLast(".")
+
+        // "통화 녹음 " 또는 "Call recording " 제거
+        var name = nameWithoutExt
+            .replace("통화 녹음 ", "")
+            .replace("통화녹음 ", "")
+            .replace("통화 녹음_", "")
+            .replace("통화녹음_", "")
+            .replace("Call recording ", "")
+            .replace("Call_", "")
+            .replace("Recording_", "")
+
+        // 날짜/시간 패턴 제거 (예: _20240109_163022 또는 _2024-01-09_16-30-22)
+        name = name.replace(Regex("""_?\d{8}_\d{6}$"""), "")
+        name = name.replace(Regex("""_?\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$"""), "")
+        name = name.replace(Regex("""_?\d{4}\d{2}\d{2}\d{6}$"""), "")
+
+        // 앞뒤 언더스코어 정리
+        name = name.trim('_', ' ')
+
+        // 짧은 번호가 발견되고 이름이 비어있으면 짧은 번호 사용
+        if (name.isEmpty() && shortMatch != null) {
+            return shortMatch.groupValues[1]
+        }
+
+        return name.ifEmpty { "알 수 없음" }
     }
 
     fun parseCallType(fileName: String): String {
