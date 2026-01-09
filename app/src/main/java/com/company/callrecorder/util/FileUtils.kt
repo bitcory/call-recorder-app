@@ -25,11 +25,11 @@ object FileUtils {
         return null
     }
 
-    fun getRecordingFiles(): List<File> {
+    fun getRecordingFiles(limit: Int = 10): List<File> {
         val dir = getRecordingDirectory() ?: return emptyList()
         return dir.listFiles { file ->
             file.isFile && (file.extension.lowercase() in listOf("m4a", "mp3", "amr", "3gp", "wav"))
-        }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        }?.sortedByDescending { it.lastModified() }?.take(limit) ?: emptyList()
     }
 
     /**
