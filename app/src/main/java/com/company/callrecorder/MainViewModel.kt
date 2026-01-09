@@ -7,6 +7,7 @@ import com.company.callrecorder.data.AppDatabase
 import com.company.callrecorder.data.FirebaseRepository
 import com.company.callrecorder.data.Recording
 import com.company.callrecorder.data.RecordingRepository
+import com.company.callrecorder.util.CallLogHelper
 import com.company.callrecorder.util.FileUtils
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -92,16 +93,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val files = FileUtils.getRecordingFiles()
                 val addedPaths = _recordings.value.map { it.filePath }.toSet()
+                val context = getApplication<Application>()
 
                 _deviceFiles.value = files.map { file ->
-                    DeviceFile(
-                        file = file,
-                        phoneNumber = FileUtils.parsePhoneNumber(file.name),
-                        contactName = FileUtils.parseContactName(file.name),
-                        callType = FileUtils.parseCallType(file.name),
-                        recordedAt = file.lastModified(),
-                        isAlreadyAdded = addedPaths.contains(file.absolutePath)
+                    // 통화 기록에서 매칭되는 전화 찾기
+                    val callLogEntry = CallLogHelper.findMatchingCall(
+                        context = context,
+                        recordingTimestamp = file.lastModified()
                     )
+
+                    if (callLogEntry != null) {
+                        // 통화 기록에서 정보 가져오기
+                        DeviceFile(
+                            file = file,
+                            phoneNumber = callLogEntry.phoneNumber,
+                            contactName = callLogEntry.contactName,
+                            callType = callLogEntry.callType,
+                            recordedAt = file.lastModified(),
+                            isAlreadyAdded = addedPaths.contains(file.absolutePath)
+                        )
+                    } else {
+                        // 통화 기록 없으면 파일명에서 파싱
+                        DeviceFile(
+                            file = file,
+                            phoneNumber = FileUtils.parsePhoneNumber(file.name),
+                            contactName = FileUtils.parseContactName(file.name),
+                            callType = FileUtils.parseCallType(file.name),
+                            recordedAt = file.lastModified(),
+                            isAlreadyAdded = addedPaths.contains(file.absolutePath)
+                        )
+                    }
                 }.sortedByDescending { it.recordedAt }
 
                 _selectedFiles.value = emptySet()

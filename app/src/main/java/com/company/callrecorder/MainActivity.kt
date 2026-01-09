@@ -87,6 +87,10 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
+        // 통화 기록 및 연락처 권한 추가
+        permissions.add(Manifest.permission.READ_CALL_LOG)
+        permissions.add(Manifest.permission.READ_CONTACTS)
+
         val notGranted = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
