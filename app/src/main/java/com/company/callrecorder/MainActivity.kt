@@ -12,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,9 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -202,7 +203,6 @@ fun LoginScreen(authRepository: AuthRepository) {
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
 
     Box(
         modifier = Modifier
@@ -243,7 +243,7 @@ fun LoginScreen(authRepository: AuthRepository) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    "Google 계정으로 로그인하여\n녹음 파일을 자동으로 업로드하세요",
+                    "Google 계정으로 로그인하여\n녹음 파일을 업로드하세요",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
@@ -282,7 +282,6 @@ fun LoginScreen(authRepository: AuthRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            // Google Icon placeholder
                             Text("G", fontWeight = FontWeight.Bold, color = Color(0xFF4285F4), fontSize = 20.sp)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
@@ -505,8 +504,8 @@ fun MainApp(
                 tonalElevation = 8.dp
             ) {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Filled.Home, contentDescription = "홈") },
-                    label = { Text("홈", fontSize = 12.sp) },
+                    icon = { Icon(Icons.Filled.FolderOpen, contentDescription = "파일선택") },
+                    label = { Text("파일선택", fontSize = 11.sp) },
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     colors = NavigationBarItemDefaults.colors(
@@ -516,8 +515,8 @@ fun MainApp(
                     )
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Filled.List, contentDescription = "녹음") },
-                    label = { Text("녹음", fontSize = 12.sp) },
+                    icon = { Icon(Icons.Filled.CloudUpload, contentDescription = "업로드") },
+                    label = { Text("업로드", fontSize = 11.sp) },
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     colors = NavigationBarItemDefaults.colors(
@@ -528,7 +527,7 @@ fun MainApp(
                 )
                 NavigationBarItem(
                     icon = { Icon(Icons.Filled.Person, contentDescription = "프로필") },
-                    label = { Text("프로필", fontSize = 12.sp) },
+                    label = { Text("프로필", fontSize = 11.sp) },
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     colors = NavigationBarItemDefaults.colors(
@@ -542,8 +541,8 @@ fun MainApp(
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (selectedTab) {
-                0 -> HomeScreen(viewModel = viewModel, appUser = appUser)
-                1 -> RecordingsScreen(
+                0 -> FileSelectScreen(viewModel = viewModel)
+                1 -> UploadedScreen(
                     viewModel = viewModel,
                     onPlayRecording = onPlayRecording,
                     onStopPlaying = onStopPlaying,
@@ -556,59 +555,383 @@ fun MainApp(
 }
 
 @Composable
-fun HomeScreen(viewModel: MainViewModel, appUser: AppUser?) {
-    val recordings by viewModel.recordings.collectAsState()
-    val todayCount by viewModel.todayCount.collectAsState()
-    val pendingCount by viewModel.pendingCount.collectAsState()
-    val isServiceRunning by viewModel.isServiceRunning.collectAsState()
+fun FileSelectScreen(viewModel: MainViewModel) {
+    val deviceFiles by viewModel.deviceFiles.collectAsState()
+    val selectedFiles by viewModel.selectedFiles.collectAsState()
+    val isScanning by viewModel.isScanning.collectAsState()
+    val uploadMessage by viewModel.uploadMessage.collectAsState()
+
+    LaunchedEffect(uploadMessage) {
+        if (uploadMessage != null) {
+            kotlinx.coroutines.delay(2000)
+            viewModel.clearUploadMessage()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Background)
-            .padding(20.dp)
+            .padding(16.dp)
     ) {
         Text(
-            text = if (appUser != null) "안녕하세요, ${appUser.displayName}님" else "안녕하세요",
+            text = "녹음 파일 선택",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = TextPrimary
         )
 
         Text(
-            text = "통화녹음이 자동으로 업로드됩니다",
+            text = "업로드할 파일을 선택하세요",
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        StatusCardCompact(
-            isRunning = isServiceRunning,
-            todayCount = todayCount,
-            pendingCount = pendingCount,
-            totalCount = recordings.size
-        )
+        // 스캔 버튼
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { viewModel.scanDeviceFiles() },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                enabled = !isScanning
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (isScanning) "스캔중..." else "파일 스캔")
+            }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            if (deviceFiles.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { viewModel.toggleSelectAll() },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("전체선택")
+                }
+            }
+        }
 
-        Text(
-            text = "최근 녹음",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = TextPrimary
-        )
+        if (uploadMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (uploadMessage!!.contains("완료")) Success.copy(alpha = 0.1f)
+                    else Error.copy(alpha = 0.1f)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = uploadMessage!!,
+                    modifier = Modifier.padding(12.dp),
+                    color = if (uploadMessage!!.contains("완료")) Success else Error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 선택한 파일 업로드 버튼
+        if (selectedFiles.isNotEmpty()) {
+            Button(
+                onClick = { viewModel.addAndUploadSelected() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Success)
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("선택한 ${selectedFiles.size}개 파일 업로드")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // 파일 목록
+        if (deviceFiles.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Outlined.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "파일 스캔 버튼을 눌러\n녹음 파일을 불러오세요",
+                        color = TextMuted,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "총 ${deviceFiles.size}개 파일",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(deviceFiles) { deviceFile ->
+                    DeviceFileItem(
+                        deviceFile = deviceFile,
+                        isSelected = selectedFiles.contains(deviceFile.file.absolutePath),
+                        onToggle = { viewModel.toggleFileSelection(deviceFile.file.absolutePath) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeviceFileItem(
+    deviceFile: DeviceFile,
+    isSelected: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !deviceFile.isAlreadyAdded) { onToggle() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                deviceFile.isAlreadyAdded -> SurfaceVariant
+                isSelected -> PrimaryLight
+                else -> Color.White
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 체크박스
+            if (!deviceFile.isAlreadyAdded) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggle() },
+                    colors = CheckboxDefaults.colors(checkedColor = Primary)
+                )
+            } else {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "업로드됨",
+                    tint = Success,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // 통화 유형 아이콘
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (deviceFile.callType == "incoming")
+                            IncomingCall.copy(alpha = 0.1f)
+                        else
+                            OutgoingCall.copy(alpha = 0.1f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (deviceFile.callType == "incoming") Icons.Default.CallReceived
+                    else Icons.Default.CallMade,
+                    contentDescription = null,
+                    tint = if (deviceFile.callType == "incoming") IncomingCall else OutgoingCall,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = deviceFile.phoneNumber,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (deviceFile.isAlreadyAdded) TextMuted else TextPrimary
+                )
+                Text(
+                    text = FileUtils.formatDateTime(deviceFile.recordedAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (deviceFile.isAlreadyAdded) {
+                Surface(
+                    color = Success.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        "업로드됨",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Success
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UploadedScreen(
+    viewModel: MainViewModel,
+    onPlayRecording: (Recording) -> Unit,
+    onStopPlaying: () -> Unit,
+    onDeleteRecording: (Recording) -> Unit
+) {
+    val recordings by viewModel.recordings.collectAsState()
+    val uploadingIds by viewModel.uploadingIds.collectAsState()
+    val uploadMessage by viewModel.uploadMessage.collectAsState()
+    var currentlyPlaying by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(uploadMessage) {
+        if (uploadMessage != null) {
+            kotlinx.coroutines.delay(2000)
+            viewModel.clearUploadMessage()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "업로드 현황",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "총 ${recordings.size}개의 녹음",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+            }
+
+            val pendingCount = recordings.count { it.uploadStatus == "pending" || it.uploadStatus == "failed" }
+            if (pendingCount > 0) {
+                Button(
+                    onClick = { viewModel.uploadAllPending() },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CloudUpload,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("재시도 ($pendingCount)", fontSize = 12.sp)
+                }
+            }
+        }
+
+        if (uploadMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (uploadMessage!!.contains("완료")) Success.copy(alpha = 0.1f)
+                    else Error.copy(alpha = 0.1f)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = uploadMessage!!,
+                    modifier = Modifier.padding(12.dp),
+                    color = if (uploadMessage!!.contains("완료")) Success else Error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (recordings.isEmpty()) {
-            EmptyState()
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Outlined.CloudUpload,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "업로드된 녹음이 없습니다\n파일선택 탭에서 파일을 선택해주세요",
+                        color = TextMuted,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(recordings.take(5)) { recording ->
-                    RecordingItemCompact(recording = recording)
+                items(recordings) { recording ->
+                    RecordingItemFull(
+                        recording = recording,
+                        isPlaying = currentlyPlaying == recording.id,
+                        isUploading = uploadingIds.contains(recording.id),
+                        onPlay = {
+                            if (currentlyPlaying == recording.id) {
+                                onStopPlaying()
+                                currentlyPlaying = null
+                            } else {
+                                onPlayRecording(recording)
+                                currentlyPlaying = recording.id
+                            }
+                        },
+                        onDelete = { onDeleteRecording(recording) },
+                        onUpload = { viewModel.uploadRecording(recording) }
+                    )
                 }
             }
         }
@@ -758,126 +1081,6 @@ fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-fun StatusCardCompact(
-    isRunning: Boolean,
-    todayCount: Int,
-    pendingCount: Int,
-    totalCount: Int
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(if (isRunning) Success else Error)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isRunning) "자동 업로드 활성화" else "서비스 중지됨",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isRunning) Success else Error
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                StatItem(count = todayCount, label = "오늘", color = Primary)
-                StatItem(count = pendingCount, label = "대기중", color = Warning)
-                StatItem(count = totalCount - pendingCount, label = "완료", color = Success)
-                StatItem(count = totalCount, label = "전체", color = TextSecondary)
-            }
-        }
-    }
-}
-
-@Composable
-fun StatItem(count: Int, label: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted
-        )
-    }
-}
-
-@Composable
-fun RecordingItemCompact(recording: Recording) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (recording.callType == "incoming")
-                            IncomingCall.copy(alpha = 0.1f)
-                        else
-                            OutgoingCall.copy(alpha = 0.1f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (recording.callType == "incoming") Icons.Default.CallReceived
-                    else Icons.Default.CallMade,
-                    contentDescription = null,
-                    tint = if (recording.callType == "incoming") IncomingCall else OutgoingCall,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = recording.phoneNumber,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "${FileUtils.formatDateTime(recording.recordedAt)} · ${FileUtils.formatDuration(recording.duration)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted
-                )
-            }
-
-            StatusChip(status = recording.uploadStatus)
-        }
-    }
-}
-
-@Composable
 fun StatusChip(status: String) {
     val (color, text) = when (status) {
         "done" -> Success to "완료"
@@ -901,149 +1104,6 @@ fun StatusChip(status: String) {
 }
 
 @Composable
-fun EmptyState() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(40.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Outlined.Phone,
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = TextMuted
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                "녹음 파일이 없습니다",
-                color = TextMuted,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-}
-
-@Composable
-fun RecordingsScreen(
-    viewModel: MainViewModel,
-    onPlayRecording: (Recording) -> Unit,
-    onStopPlaying: () -> Unit,
-    onDeleteRecording: (Recording) -> Unit
-) {
-    val recordings by viewModel.recordings.collectAsState()
-    val uploadingIds by viewModel.uploadingIds.collectAsState()
-    val uploadMessage by viewModel.uploadMessage.collectAsState()
-    var currentlyPlaying by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(uploadMessage) {
-        if (uploadMessage != null) {
-            kotlinx.coroutines.delay(2000)
-            viewModel.clearUploadMessage()
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Background)
-            .padding(20.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "녹음 목록",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "총 ${recordings.size}개의 녹음",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-            }
-
-            val pendingCount = recordings.count { it.uploadStatus == "pending" || it.uploadStatus == "failed" }
-            if (pendingCount > 0) {
-                Button(
-                    onClick = { viewModel.uploadAllPending() },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Primary),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CloudUpload,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("재시도 ($pendingCount)", fontSize = 12.sp)
-                }
-            }
-        }
-
-        if (uploadMessage != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (uploadMessage!!.contains("완료")) Success.copy(alpha = 0.1f)
-                    else Error.copy(alpha = 0.1f)
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = uploadMessage!!,
-                    modifier = Modifier.padding(12.dp),
-                    color = if (uploadMessage!!.contains("완료")) Success else Error,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        if (recordings.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                EmptyState()
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(recordings) { recording ->
-                    RecordingItemFull(
-                        recording = recording,
-                        isPlaying = currentlyPlaying == recording.id,
-                        isUploading = uploadingIds.contains(recording.id),
-                        onPlay = {
-                            if (currentlyPlaying == recording.id) {
-                                onStopPlaying()
-                                currentlyPlaying = null
-                            } else {
-                                onPlayRecording(recording)
-                                currentlyPlaying = recording.id
-                            }
-                        },
-                        onDelete = { onDeleteRecording(recording) },
-                        onUpload = { viewModel.uploadRecording(recording) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun RecordingItemFull(
     recording: Recording,
     isPlaying: Boolean,
@@ -1061,12 +1121,12 @@ fun RecordingItemFull(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(
                         if (recording.callType == "incoming")
@@ -1081,7 +1141,7 @@ fun RecordingItemFull(
                     else Icons.Default.CallMade,
                     contentDescription = null,
                     tint = if (recording.callType == "incoming") IncomingCall else OutgoingCall,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 

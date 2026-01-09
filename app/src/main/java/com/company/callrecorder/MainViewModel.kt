@@ -7,6 +7,7 @@ import com.company.callrecorder.data.AppDatabase
 import com.company.callrecorder.data.FirebaseRepository
 import com.company.callrecorder.data.Recording
 import com.company.callrecorder.data.RecordingRepository
+import com.company.callrecorder.util.FileUtils
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +15,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.io.File
+
+data class DeviceFile(
+    val file: File,
+    val phoneNumber: String,
+    val callType: String,
+    val recordedAt: Long,
+    val isAlreadyAdded: Boolean
+)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -22,6 +32,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _recordings = MutableStateFlow<List<Recording>>(emptyList())
     val recordings: StateFlow<List<Recording>> = _recordings.asStateFlow()
+
+    private val _deviceFiles = MutableStateFlow<List<DeviceFile>>(emptyList())
+    val deviceFiles: StateFlow<List<DeviceFile>> = _deviceFiles.asStateFlow()
+
+    private val _selectedFiles = MutableStateFlow<Set<String>>(emptySet())
+    val selectedFiles: StateFlow<Set<String>> = _selectedFiles.asStateFlow()
 
     private val _todayCount = MutableStateFlow(0)
     val todayCount: StateFlow<Int> = _todayCount.asStateFlow()
@@ -37,6 +53,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uploadMessage = MutableStateFlow<String?>(null)
     val uploadMessage: StateFlow<String?> = _uploadMessage.asStateFlow()
+
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -65,6 +84,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isServiceRunning.value = running
     }
 
+    // 디바이스에서 녹음 파일 목록 가져오기
+    fun scanDeviceFiles() {
+        viewModelScope.launch {
+            _isScanning.value = true
+            try {
+                val files = FileUtils.getRecordingFiles()
+                val addedPaths = _recordings.value.map { it.filePath }.toSet()
+
+                _deviceFiles.value = files.map { file ->
+                    DeviceFile(
+                        file = file,
+                        phoneNumber = FileUtils.parsePhoneNumber(file.name),
+                        callType = FileUtils.parseCallType(file.name),
+                        recordedAt = file.lastModified(),
+                        isAlreadyAdded = addedPaths.contains(file.absolutePath)
+                    )
+                }.sortedByDescending { it.recordedAt }
+
+                _selectedFiles.value = emptySet()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isScanning.value = false
+            }
+        }
+    }
+
+    // 파일 선택/해제
+    fun toggleFileSelection(filePath: String) {
+        val current = _selectedFiles.value.toMutableSet()
+        if (current.contains(filePath)) {
+            current.remove(filePath)
+        } else {
+            current.add(filePath)
+        }
+        _selectedFiles.value = current
+    }
+
+    // 전체 선택/해제
+    fun toggleSelectAll() {
+        val notAdded = _deviceFiles.value.filter { !it.isAlreadyAdded }
+        if (_selectedFiles.value.size == notAdded.size) {
+            _selectedFiles.value = emptySet()
+        } else {
+            _selectedFiles.value = notAdded.map { it.file.absolutePath }.toSet()
+        }
+    }
+
+    // 선택한 파일들 추가 및 업로드
+    fun addAndUploadSelected() {
+        viewModelScope.launch {
+            val selectedPaths = _selectedFiles.value
+            val filesToAdd = _deviceFiles.value.filter { selectedPaths.contains(it.file.absolutePath) }
+
+            for (deviceFile in filesToAdd) {
+                try {
+                    val recording = Recording(
+                        id = deviceFile.file.absolutePath.hashCode().toString(),
+                        fileName = deviceFile.file.name,
+                        filePath = deviceFile.file.absolutePath,
+                        phoneNumber = deviceFile.phoneNumber,
+                        callType = deviceFile.callType,
+                        duration = getAudioDuration(deviceFile.file),
+                        recordedAt = deviceFile.recordedAt,
+                        uploadStatus = "pending"
+                    )
+                    repository.insert(recording)
+
+                    // 바로 업로드
+                    uploadRecording(recording)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            _selectedFiles.value = emptySet()
+            // 목록 갱신
+            scanDeviceFiles()
+        }
+    }
+
+    private fun getAudioDuration(file: File): Int {
+        return try {
+            val retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(file.absolutePath)
+            val duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            (duration?.toLongOrNull() ?: 0L).toInt() / 1000
+        } catch (e: Exception) {
+            0
+        }
+    }
+
     fun deleteRecording(recording: Recording) {
         viewModelScope.launch {
             repository.delete(recording)
@@ -74,11 +186,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun uploadRecording(recording: Recording) {
         viewModelScope.launch {
             try {
-                // 업로드 중 표시
                 _uploadingIds.value = _uploadingIds.value + recording.id
                 repository.updateUploadStatus(recording.id, "uploading")
 
-                // Firebase Auth에서 현재 사용자 가져오기
                 val currentUser = FirebaseAuth.getInstance().currentUser
                 if (currentUser == null) {
                     _uploadMessage.value = "로그인이 필요합니다"
@@ -87,7 +197,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Firestore에서 사용자 정보 가져오기
                 val userDoc = FirebaseFirestore.getInstance()
                     .collection("users")
                     .document(currentUser.uid)
@@ -112,7 +221,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val employeeName = userDoc.getString("displayName") ?: ""
                 val employeeId = currentUser.uid
 
-                // Firebase 업로드
                 val result = firebaseRepository.uploadRecording(
                     recording = recording,
                     employeeName = employeeName,
