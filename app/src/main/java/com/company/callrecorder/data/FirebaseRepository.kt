@@ -41,6 +41,7 @@ class FirebaseRepository {
                 "downloadUrl" to downloadUrl,
                 "storagePath" to "recordings/$employeeId/$fileName",
                 "phoneNumber" to recording.phoneNumber,
+                "contactName" to recording.contactName,
                 "callType" to recording.callType,
                 "duration" to recording.duration,
                 "recordedAt" to recording.recordedAt,

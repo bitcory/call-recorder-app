@@ -20,6 +20,7 @@ import java.io.File
 data class DeviceFile(
     val file: File,
     val phoneNumber: String,
+    val contactName: String,
     val callType: String,
     val recordedAt: Long,
     val isAlreadyAdded: Boolean
@@ -96,6 +97,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     DeviceFile(
                         file = file,
                         phoneNumber = FileUtils.parsePhoneNumber(file.name),
+                        contactName = FileUtils.parseContactName(file.name),
                         callType = FileUtils.parseCallType(file.name),
                         recordedAt = file.lastModified(),
                         isAlreadyAdded = addedPaths.contains(file.absolutePath)
@@ -145,6 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         fileName = deviceFile.file.name,
                         filePath = deviceFile.file.absolutePath,
                         phoneNumber = deviceFile.phoneNumber,
+                        contactName = deviceFile.contactName,
                         callType = deviceFile.callType,
                         duration = getAudioDuration(deviceFile.file),
                         recordedAt = deviceFile.recordedAt,
