@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        authRepository = AuthRepository(applicationContext)
+        authRepository = AuthRepository(this)
 
         setContent {
             CallRecorderUploaderTheme {
